@@ -24,3 +24,6 @@ postman/
 *.postman_collection.json
 *.postman_environment.json
 *.postman
+
+# Database stuff
+*.db
