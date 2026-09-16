@@ -3,3 +3,15 @@ class DuplicateUserError(Exception):
 
 class InvalidCredentialsError(Exception):
     """Raised when attempting to login with invalid credentials (incorrect email and/or password)"""
+
+class InvalidStatusError(Exception):
+    """Raised when disallowed values for a task status is entered"""
+
+class InvalidPriorityError(Exception):
+    """Raised when disallowed values for a task priority is entered"""
+
+class InvalidDateTimeError(Exception):
+    """Raised when invalid date/datetime is entered (date in the past, perhaps)"""
+
+class TaskNotFoundError(Exception):
+    """The requested application resource was not found or is not accessible to this user"""
