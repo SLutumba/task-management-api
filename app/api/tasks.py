@@ -2,9 +2,9 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from pydantic import ValidationError
 from app.database import SessionLocal
-from app.exceptions import InvalidDateTimeError
+from app.exceptions import InvalidDateTimeError, TaskNotFoundError
 from app.schemas.task import CreateTaskRequest
-from app.services.task import get_tasks, create_task
+from app.services.task import get_tasks, create_task, get_task
 from app.utils.helper_functions import task_serialiser, tasks_serialiser
 
 task_blueprint = Blueprint('tasks', 'tasks', url_prefix="/tasks")
@@ -32,6 +32,8 @@ def create_user_task():
                         user_id=current_user_id)
     except InvalidDateTimeError as e:
         return {"error": str(e)}, 406
+    except Exception:
+            return {"error": "Internal Server Error"}, 500
 
     finally:
         db.close()
@@ -45,7 +47,28 @@ def get_user_tasks():
     current_user_id = int(get_jwt_identity())
 
     db = SessionLocal()
-    tasks = get_tasks(db, user_id=current_user_id)
-    db.close()
+    try:
+        tasks = get_tasks(db, user_id=current_user_id)
+    except Exception:
+        return {"error": "Internal Server Error"}, 500
+    finally:
+        db.close()
     
     return jsonify(tasks_serialiser(tasks)), 201
+
+@task_blueprint.route("/<int:task_id>", methods=['GET'])
+@jwt_required()
+def get_user_task(task_id: int):
+    current_user_id = int(get_jwt_identity())
+
+    db = SessionLocal()
+    try:
+        task = get_task(db=db, user_id=current_user_id, task_id=task_id)
+    except TaskNotFoundError as exc:
+        return {"error": str(exc)}, 404
+    except Exception:
+        return {"error": "Internal Server Error"}, 500
+    finally:
+        db.close()
+
+    return jsonify(task_serialiser(task=task))

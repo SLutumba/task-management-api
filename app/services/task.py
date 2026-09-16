@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.exceptions import InvalidDateTimeError
+from app.exceptions import InvalidDateTimeError, TaskNotFoundError
 from app.models import Task
 from app.schemas.task import CreateTaskRequest
 from datetime import datetime
@@ -46,7 +46,25 @@ def get_tasks(
         db.query(Task)
         .filter(Task.user_id == user_id)
         .all()
-        )
+    )
     
     return tasks
-    
+
+def get_task(
+        db: Session, 
+        user_id: int, 
+        task_id: int
+    ) -> Task:
+
+    task = (
+        db.query(Task)
+        .filter(Task.id == task_id, Task.user_id == user_id)
+        .first()
+    )
+
+    if task is None:
+        raise TaskNotFoundError(
+            "Task doesn't exist"
+        )
+
+    return task
