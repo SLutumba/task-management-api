@@ -6,6 +6,7 @@ from app.database import SessionLocal
 from app.schemas.user import LoginUserRequest, RegisterUserRequest
 from app.services.user import login_user, register_user
 from app.exceptions import InvalidCredentialsError, DuplicateUserError
+
 user_blueprint = Blueprint('users', 'users', url_prefix="/users")
 
 @user_blueprint.route("/health", methods=['GET', 'POST'])

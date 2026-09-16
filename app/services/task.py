@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from app.exceptions import InvalidDateTimeError, TaskNotFoundError
 from app.models import Task
-from app.schemas.task import CreateTaskRequest
+from app.schemas.task import CreateTaskRequest, UpdateTaskRequest
 from datetime import datetime
 
 def create_task(
@@ -15,7 +15,6 @@ def create_task(
         raise InvalidDateTimeError(
             f"Invalid due date entered. The date cannot be before today's date: {datetime.today().date()}"
         )
-    print(request.status)
     new_task = Task(
         user_id=user_id,
         title=request.title,
@@ -66,5 +65,68 @@ def get_task(
         raise TaskNotFoundError(
             "Task doesn't exist"
         )
+
+    return task
+
+def update_task(
+        db: Session, 
+        request: UpdateTaskRequest,
+        task_id: int,
+        user_id: int
+    ):
+
+    task = (
+        db.query(Task)
+        .filter(Task.id == task_id, Task.user_id == user_id)
+        .first()
+    )
+
+    if task is None:
+        raise TaskNotFoundError(
+            "Task not Found"
+        )
+
+    if (request.due_date is not None 
+        and (request.due_date < datetime.now())):
+        raise InvalidDateTimeError(
+            f"Invalid due date entered. The date cannot be before today's date: {datetime.today().date()}"
+        )
+
+    payload = request.model_dump(exclude_unset=True)   
+    task.title = (
+        request.title 
+        if "title" in payload 
+        and request.title is not None
+        else task.title
+        )
+    task.description = (
+        request.description 
+        if "description" in payload 
+        else task.description
+        )
+    task.status = (
+        request.status.value 
+        if "status" in payload
+        and request.status is not None
+        else task.status
+        )
+    task.priority = (
+        request.priority.value 
+        if "priority" in payload 
+        and request.priority is not None
+        else task.priority
+        )
+    task.due_date = (
+        request.due_date 
+        if "due_date" in  payload 
+        else task.due_date
+        )
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(task)
 
     return task
