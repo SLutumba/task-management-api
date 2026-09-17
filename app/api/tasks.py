@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from app.database import SessionLocal
 from app.exceptions import InvalidDateTimeError, TaskNotFoundError
 from app.schemas.task import CreateTaskRequest, UpdateTaskRequest
-from app.services.task import get_tasks, create_task, get_task, update_task
+from app.services.task import get_tasks, create_task, get_task, update_task, delete_task
 from app.utils.helper_functions import task_serialiser, tasks_serialiser
 
 task_blueprint = Blueprint('tasks', 'tasks', url_prefix="/tasks")
@@ -106,3 +106,21 @@ def update_user_task(task_id: int):
         db.close()
     
     return jsonify(task_serialiser(task))
+
+@task_blueprint.route("/<int:task_id>", methods=["DELETE"])
+@jwt_required()
+def delete_user_task(task_id: int):
+    current_user_id = int(get_jwt_identity())
+
+    db = SessionLocal()
+    try:
+        delete_task(db=db, task_id=task_id, user_id=current_user_id)
+    except TaskNotFoundError as exc:
+        return {"error": str(exc)}, 404
+    except Exception as e:
+        print(f"Error encountered in delete route: {e}")
+        return {"error": "Internal Server Error"}, 500
+    finally:
+        db.close()
+
+    return "", 204

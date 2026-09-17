@@ -130,3 +130,27 @@ def update_task(
     db.refresh(task)
 
     return task
+
+def delete_task(
+        db: Session,
+        task_id: int, 
+        user_id: int
+        ):
+
+    task = (
+        db.query(Task)
+        .filter(Task.user_id == user_id, 
+                Task.id == task_id)
+        .first())
+
+    if task is None:
+        raise TaskNotFoundError(
+            "Task not found"
+        )
+
+    db.delete(task)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
