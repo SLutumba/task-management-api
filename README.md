@@ -1,282 +1,157 @@
 # Task Management API
 
-A REST-style backend API for managing user-owned tasks, built with Flask and SQLAlchemy.
+A Python and Flask API for managing user-owned tasks. Users register, sign in and manage their tasks through JWT-protected endpoints backed by SQLAlchemy and SQLite.
 
-The project is being developed as a hands-on backend engineering project rather than a simple CRUD exercise. The goal is to build the API while practising clear application boundaries, database design, authentication, authorization, validation, error handling, and maintainable code structure.
+**Status:** the core authenticated CRUD workflow is implemented. Error handling, date consistency and an automated regression suite are the next work items. See [API_SPEC.md](API_SPEC.md) for the implemented API, including its current limitations.
 
-## Project Status
+## Features
 
-**In development.**
+- Registration and login with bcrypt password hashing and signed JWT access tokens.
+- JWT protection on task creation, listing, retrieval, updates and deletion.
+- Ownership checks in database queries: users can access only their own tasks.
+- Pydantic validation for user and task input, including allowed status and priority values.
+- Partial updates that preserve omitted fields and allow optional fields to be cleared.
+- Separate routes, schemas, services, models and serialization helpers.
+- Database transaction rollback on failed writes and session cleanup in routes.
 
-Currently implemented:
+## Run locally
 
-- User registration
-- User login
-- Password hashing and verification with bcrypt
-- Request validation with Pydantic
-- JWT access-token generation
-- SQLAlchemy `User` and `Task` models
-- Shared SQLAlchemy declarative base and database session setup
-- Application-specific authentication exceptions
-
-Currently in progress:
-
-- JWT-protected Task endpoints
-- User-scoped task retrieval
-- Task creation, update, and deletion
-- Object-level authorization so users can only access their own tasks
-- Task request/response schemas
-- Automated testing
-
-## Architecture
-
-The project follows a layered structure so that each part of the application has a focused responsibility:
-
-```text
-Client
-  ↓
-Route / API layer
-  ↓
-Schema / validation layer
-  ↓
-Service layer
-  ↓
-ORM / database layer
-```
-
-### Responsibilities
-
-- **Routes** — handle HTTP requests, responses, status codes, JWT/framework concerns, and translate known application errors into HTTP responses.
-- **Schemas** — validate and structure incoming request data.
-- **Services** — contain application and business logic while coordinating database operations.
-- **Models** — map Python objects to relational database tables through SQLAlchemy.
-- **Database** — stores application data and enforces persistence-level constraints.
-
-A key design principle for the project is:
-
-> Each layer should know only what it needs to know to perform its responsibility.
-
-## Tech Stack
-
-- Python
-- Flask
-- Flask-JWT-Extended
-- SQLAlchemy ORM
-- Pydantic
-- bcrypt
-- SQLite for local development
-
-## Project Structure
-
-```text
-task-management-api/
-├── app/
-│   ├── api/
-│   │   ├── tasks.py
-│   │   └── users.py
-│   ├── models/
-│   │   ├── base.py
-│   │   ├── task.py
-│   │   └── user.py
-│   ├── schemas/
-│   │   ├── task.py
-│   │   └── user.py
-│   ├── services/
-│   │   └── user.py
-│   ├── utils/
-│   │   └── security.py
-│   ├── database.py
-│   └── exceptions.py
-├── API_SPEC.md
-├── main.py
-├── requirements.txt
-└── README.md
-```
-
-## Data Model
-
-### User
-
-A user has a unique username and email, a securely stored password hash, audit timestamps, and can own multiple tasks.
-
-### Task
-
-A task belongs to one user and contains:
-
-- title
-- optional description
-- status
-- priority
-- optional due date
-- created and updated timestamps
-
-The relationship is:
-
-```text
-User 1 ──────── * Task
-```
-
-Each Task stores a `user_id` foreign key referencing its owner.
-
-## Authentication
-
-Passwords are never stored directly. Registration hashes the supplied password with bcrypt and stores only the resulting password hash.
-
-Login verifies the supplied credentials and, when authentication succeeds, returns a signed JWT access token.
-
-The user ID is used as the JWT identity so protected routes can determine which authenticated user is making the request.
-
-## Current API
-
-### Health Checks
-
-```http
-GET /users/health
-GET /tasks/health
-```
-
-### Register
-
-```http
-POST /users/register
-```
-
-Example request:
-
-```json
-{
-  "username": "testuser",
-  "email": "test@example.com",
-  "password": "strongpassword123"
-}
-```
-
-Successful registration creates the account and immediately returns an access token:
-
-```json
-{
-  "access_token": "<jwt>"
-}
-```
-
-Status: `201 Created`
-
-### Login
-
-```http
-POST /users/login
-```
-
-Example request:
-
-```json
-{
-  "email": "test@example.com",
-  "password": "strongpassword123"
-}
-```
-
-Successful response:
-
-```json
-{
-  "access_token": "<jwt>"
-}
-```
-
-Status: `200 OK`
-
-Known authentication failures are translated into appropriate HTTP responses, including `400 Bad Request`, `401 Unauthorized`, and `409 Conflict`.
-
-> Task endpoints are still being developed and secured. Their public contract may change until the authentication and authorization flow is complete.
-
-## Running Locally
-
-### 1. Clone the repository
+Tested with Python 3.12. Commands below use Bash, including Git Bash on Windows.
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/SLutumba/task-management-api.git
 cd task-management-api
+python -m venv venv
 ```
 
-### 2. Create and activate a virtual environment
+Activate the environment in **Git Bash on Windows**:
 
 ```bash
-python -m venv .venv
-source .venv/Scripts/activate
+source venv/Scripts/activate
 ```
 
-The activation command above is for Git Bash on Windows. On Linux/macOS, use:
+On **Linux or macOS**:
 
 ```bash
-source .venv/bin/activate
+source venv/bin/activate
 ```
 
-### 3. Install dependencies
-
-The dependency file is being cleaned up as part of the current development work. The application currently depends on Flask, SQLAlchemy, Pydantic, email-validator, bcrypt, and Flask-JWT-Extended.
-
-### 4. Configure the JWT secret
-
-The application expects `JWT_SECRET_KEY` to exist in the environment and intentionally fails to start when it is missing.
-
-Generate a development secret:
+Install the dependencies, create a development secret and start the server from the repository root:
 
 ```bash
-python -c "import secrets; print(secrets.token_hex(32))"
+python -m pip install -r requirements.txt
+export JWT_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+python -m flask --app main run
 ```
 
-Then export it in Bash:
+The server listens at `http://127.0.0.1:5000`. The application reads `JWT_SECRET_KEY` from the shell environment; it does not load a `.env` file automatically. Run the export command again in a new shell session. Changing the secret invalidates tokens signed with the previous value.
+
+SQLite tables are created on application import, and local data is stored in `app/database.db`, relative to the working directory. Table creation does not migrate an existing schema. Schema migrations have not been added yet.
+
+Check that the application responds:
 
 ```bash
-export JWT_SECRET_KEY="your-generated-secret"
+curl -i http://127.0.0.1:5000/tasks/health
 ```
 
-Do not commit the JWT secret to the repository.
+Expected: `200 OK` with `{"status":"healthy"}`. The health route is public and is not a database connectivity check.
 
-### 5. Start the application
+## Try the task workflow
+
+Register a new account:
 
 ```bash
-flask --app main run --debug
+curl -i -X POST http://127.0.0.1:5000/users/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"demo_user","email":"demo@example.com","password":"DemoPassword123!"}'
 ```
 
-The local SQLite database is created from the registered SQLAlchemy model metadata during development.
+Registration returns `201` and an `access_token`. For an existing account, sign in instead:
 
-## Engineering Goals
+```bash
+curl -i -X POST http://127.0.0.1:5000/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"demo@example.com","password":"DemoPassword123!"}'
+```
 
-This project is also being used to practise several backend engineering principles:
+Copy the returned token into a shell variable. Tokens currently expire after 15 minutes; sign in again for a new token.
 
-- Keep HTTP/framework concerns out of the service layer.
-- Separate structural validation from database-dependent business rules.
-- Inject database sessions rather than creating them inside services.
-- Roll back failed transactions before propagating errors.
-- Store password hashes rather than recoverable passwords.
-- Use application-specific exceptions for known business failures.
-- Apply authorization directly to database queries where possible.
-- Prefer simple designs until additional complexity solves a real problem.
+```bash
+export TOKEN='paste-access-token-here'
 
-## Roadmap
+curl -i -X POST http://127.0.0.1:5000/tasks/create \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Review API docs","description":"Check examples","status":"To-Do","priority":"Medium","due_date":null}'
 
-- [x] Design initial relational model
-- [x] Build SQLAlchemy models and relationships
-- [x] Add database session infrastructure
-- [x] Add registration and password hashing
-- [x] Add login and credential verification
-- [x] Add JWT access-token creation
-- [ ] Protect Task routes with JWT authentication
-- [ ] Extract authenticated user identity
-- [ ] Implement user-scoped Task queries
-- [ ] Add create/update/delete Task operations
-- [ ] Add object-level authorization
-- [ ] Finalize Task schemas and serialization
-- [ ] Add automated tests
-- [ ] Improve configuration and environment management
-- [ ] Add database migrations
+curl -i http://127.0.0.1:5000/tasks/ \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-## API Specification
+Use the task ID returned by creation in the remaining requests:
 
-`API_SPEC.md` contains the original API design notes. The implementation is evolving as the project is developed, so the README and running application should be treated as the more current representation of implemented behaviour until the API specification is revised.
+```bash
+TASK_ID=1 # Replace with the returned id.
+
+curl -i "http://127.0.0.1:5000/tasks/$TASK_ID" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -i -X PATCH "http://127.0.0.1:5000/tasks/$TASK_ID" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"Complete","description":null}'
+
+curl -i -X DELETE "http://127.0.0.1:5000/tasks/$TASK_ID" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Deletion returns `204` with no body. Accessing a missing task or another user's task returns `404`.
+
+## Endpoint overview
+
+Paths have no `/api` prefix. The table shows the current implementation's success codes.
+
+| Method | Path | Authentication | Success |
+|---|---|---|---|
+| POST | `/users/register` | Public | `201`, access token |
+| POST | `/users/login` | Public | `200`, access token |
+| POST | `/tasks/create` | Bearer token | `200`, task object |
+| GET | `/tasks/` | Bearer token | `201`, task array |
+| GET | `/tasks/{task_id}` | Bearer token | `200`, task object |
+| PATCH | `/tasks/{task_id}` | Bearer token | `200`, updated task |
+| DELETE | `/tasks/{task_id}` | Bearer token | `204`, empty body |
+| GET or POST | `/users/health`, `/tasks/health` | Public | `200`, health object |
+
+The create/list codes need correction to `201`/`200` respectively. They are documented as implemented here so examples do not promise different behaviour from the code.
+
+## Implementation
+
+| Location | Responsibility |
+|---|---|
+| `main.py` | Flask application, blueprint registration and JWT configuration |
+| `app/api/` | HTTP handling, token identity, validation and application-error responses |
+| `app/schemas/` | Pydantic request models and field validation |
+| `app/services/` | Task ownership queries, business rules and database writes |
+| `app/models/` | SQLAlchemy user/task tables and relationships |
+| `app/database.py` | SQLite engine, session factory and initial table creation |
+| `app/utils/` | Password hashing and task serialization helpers |
+
+Each task has one owner through `user_id`; a user can own many tasks. Ownership is taken from the authenticated token, not a request body. Single-task queries filter by both task ID and owner ID, so missing and inaccessible tasks produce the same status code.
+
+For PATCH requests, `model_dump(exclude_unset=True)` distinguishes an omitted field from an explicit `null`. This allows a description or due date to be cleared without overwriting unrelated fields.
+
+## Verification and remaining work
+
+A review of application commit `b937cb5` exercised registration, login, task CRUD, missing/expired tokens, two-user ownership isolation and partial-update behaviour using an isolated SQLite database. It also reproduced the issues below. That review is not a committed automated test suite.
+
+- Correct create/list success codes and use a validation-error response for past due dates instead of `406`.
+- Choose a consistent datetime policy. Timezone-aware input currently causes `500`; returned date strings also differ from accepted input strings.
+- Handle duplicate usernames as conflicts, validate bcrypt's password byte limit and remove submitted input from authentication validation errors.
+- Apply consistent title rules to creation and updates, and normalise error responses.
+- Add regression tests and run them in CI, prioritising ownership isolation and failed requests.
+
+Filtering, pagination, refresh tokens, deployment and database migrations are not implemented. These are separate enhancements; the current task workflow does not depend on them.
 
 ## License
 
-This project is currently intended for learning and portfolio development. A license has not yet been selected.
+A license has not yet been selected.

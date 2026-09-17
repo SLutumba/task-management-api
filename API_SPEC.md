@@ -1,254 +1,273 @@
-# Endpoints
-- Register User
-- Login
-- Get Tasks
-- Create Task
-- Update Task
-- Delete Task
+# Task Management API — HTTP reference
 
-## Register User
-### Request:
-POST /api/auth/register
-{
-    "username": "name",
-    "email": "email@stuff.com",
-    "password": "supersecretpassword"
-}
-### Response:
-####  Success
-- Code: 201
-- Body:
-{
-    "message": "User successfully registered."
-}
+This reference describes application commit [`b937cb5`](https://github.com/SLutumba/task-management-api/tree/b937cb544b52102b59775c05249b4b733c2e6173), reviewed on 17 September 2026. It documents implemented behaviour, including defects that affect clients. It is not a proposed future contract.
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
-- Code: 400
-{
-    "error": "Missing email/username/password"
-}
-- Code: 409
-{
-    "error": "email/username already exists"
-}
+For installation and a complete command-line walkthrough, see [README.md](README.md).
 
-## Login
-### Request:
-POST /api/auth/login
-{
-    "username": "name",
-    "password": "supersecretpassword"
-}
+## Connection and authentication
 
-### Response:
-####  Success
-- Code: 200
-- Body:
-{
-    "token": "jwt_token."
-}
+- Local base URL: `http://127.0.0.1:5000`.
+- There is no `/api` prefix.
+- Send JSON request bodies with `Content-Type: application/json`.
+- Protected routes require `Authorization: Bearer <access_token>`.
+- Registration and login both issue an access token. Tokens currently expire after 15 minutes; log in again to obtain another. Refresh and logout endpoints are not implemented.
+- Task ownership comes from the token identity. A client cannot assign a different owner through the request body.
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
-- Code: 400
-{
-    "error": "Missing email/username/password"
-}
-- Code: 404
-{
-    "error": "User with username not found"
-}
-- Code: 401
-{
-    "error": "Invalid password"
-}
+## Routes at a glance
 
-## Create Task
-### Request:
-POST /api/tasks/
-{
+| Method | Path | Access | Current success response |
+|---|---|---|---|
+| POST | `/users/register` | Public | `201`, token object |
+| POST | `/users/login` | Public | `200`, token object |
+| POST | `/tasks/create` | Bearer token | `200`, task object |
+| GET | `/tasks/` | Bearer token | `201`, task array |
+| GET | `/tasks/{task_id}` | Bearer token | `200`, task object |
+| PATCH | `/tasks/{task_id}` | Bearer token | `200`, updated task object |
+| DELETE | `/tasks/{task_id}` | Bearer token | `204`, no body |
+| GET or POST | `/users/health` | Public | `200`, health object |
+| GET or POST | `/tasks/health` | Public | `200`, health object |
 
-    "title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?
-}
+**Known defect:** task creation should return `201` and task listing should return `200`. The table records the existing codes. Use the trailing slash in `/tasks/` as shown.
 
-### Response:
-####  Success
-- Code: 201
-- Body:
-{
-    "task_id", 1
-    "user_id", 1
-    "title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?
-}
+## Register
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
-- Code: 400
-{
-    "error": "Missing details (title, status, or priority)"
-}
-- Code: 401
-{
-    "error": "You're not logged in, you can't create any tasks"
-}
+`POST /users/register`
 
-## Get Tasks
-### Request:
-GET /api/tasks/
+| Field | Required | Current request validation |
+|---|---|---|
+| `username` | Yes | String, 3–32 characters |
+| `email` | Yes | Email address validated by Pydantic `EmailStr` |
+| `password` | Yes | String, 8–128 characters; see bcrypt limitation below |
 
-### Response:
-####  Success
-- Code: 200
-- Body:
+```json
 {
-    {"title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?},
+  "username": "demo_user",
+  "email": "demo@example.com",
+  "password": "DemoPassword123!"
+}
+```
 
-    {"title": "title2",
-    "description": "describeit2",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?}
-}
+Success: `201`.
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
+```json
+{"access_token": "<signed-jwt>"}
+```
 
-- Code: 401
-{
-    "error": "You're not logged in, you can't access any tasks"
-}
-- Code: 403
-{
-    "error": "the tasks you're trying to retrieve don't belong to you"
-}
-## Get Task
-### Request:
-GET /api/tasks/{id}
+A duplicate email returns `409`:
 
-### Response:
-####  Success
-- Code: 200
-- Body:
-{
-    {"title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?}
-}
+```json
+{"error": "A user with this email already exists."}
+```
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
+Invalid request data returns `400`. There are two unhandled cases: a duplicate username with a new email returns `500`, and passwords longer than 72 UTF-8 bytes can pass the schema but fail bcrypt hashing with `500`. The schema's character limit does not enforce bcrypt's byte limit.
 
-- Code: 401
-{
-    "error": "You're not logged in, you can't access any tasks"
-}
-- Code: 403
-{
-    "error": "the tasks you're trying to retrieve don't belong to you"
-}
-- Code: 404
-{
-    "error": "no such task exists"
-}
+## Log in
 
-## Update Task
-### Request:
-PUT /api/tasks/{task_id}
-{
-    "title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?
-}
+`POST /users/login`
 
-### Response:
-####  Success
-- Code: 200
-- Body:
-{
-    "title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?
-}
+Login uses **email and password**, not username. Both fields are required. Email uses `EmailStr`; the password schema accepts 8–128 characters.
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
-- Code: 400
-{
-    "error": "Missing details (title, status, or priority)"
-}
-- Code: 401
-{
-    "error": "You're not logged in, you can't access any tasks"
-}
-- Code: 403
-{
-    "error": "the tasks you're trying to edit don't belong to you"
-}
+```json
+{"email": "demo@example.com", "password": "DemoPassword123!"}
+```
 
-## Delete Task
-### Request:
-DELETE /api/tasks/{task_id}
+Success: `200`, with the same token-object shape as registration. Incorrect credentials return `401`:
 
+```json
+{"error": "Invalid email or password."}
+```
 
-### Response:
-####  Success
-- Code: 204
-- Body:
-{
-   "success": "deletion was successful"
-}
+Schema validation failures return `400`. Authentication validation responses currently include Pydantic input values, which can expose a submitted password in the response. This requires correction; clients should not log these response bodies.
 
-#### Failures
-- Code: 500
+## Task representation
+
+Successful single-task responses contain these six fields:
+
+```json
 {
-    "Internal server issue, please try again"
+  "id": 1,
+  "title": "Review API docs",
+  "description": "Check examples",
+  "status": "To-Do",
+  "priority": "Medium",
+  "due_date": null
 }
-- Code: 400
+```
+
+`id` is an integer generated by the database. `description` and `due_date` may be `null`. Owner IDs and creation/update timestamps are not included in the serialized response.
+
+Allowed values are case-sensitive:
+
+| Field | Values |
+|---|---|
+| `status` | `To-Do`, `In Progress`, `Complete` |
+| `priority` | `Low`, `Medium`, `High` |
+
+Non-null `due_date` values currently serialize as HTTP-style date strings, for example `Thu, 24 Sep 2026 10:00:00 GMT`. This is inconsistent with the input format; see Date handling.
+
+## Create a task
+
+`POST /tasks/create` — authentication required.
+
+| Field | Required | Current rules |
+|---|---|---|
+| `title` | Yes | String, 3–64 characters |
+| `description` | No | String up to 128 characters, or `null`; defaults to `null` |
+| `status` | Yes | One of the status values above |
+| `priority` | Yes | One of the priority values above |
+| `due_date` | No | Datetime or `null`; defaults to `null`; see Date handling |
+
+```json
 {
-    "error": "Missing task id"
+  "title": "Review API docs",
+  "description": "Check examples",
+  "status": "To-Do",
+  "priority": "Medium",
+  "due_date": null
 }
-- Code: 401
-{
-    "error": "You're not logged in, you can't delete any tasks"
-}
-- Code: 403
-{
-    "error": "the tasks you're trying to delete don't belong to you"
-}
+```
+
+Success: currently `200`, returning the new task object. Status and priority have no request defaults. Unknown request fields are silently ignored, including `user_id`; ownership is always taken from the token.
+
+Known validation gap: a title consisting of three spaces passes creation. Creation does not currently trim or reject whitespace-only titles.
+
+## List tasks
+
+`GET /tasks/` — authentication required.
+
+Returns only tasks owned by the authenticated user. Success is currently `201`, with a JSON array of task objects. An account without tasks receives `[]`.
+
+No filtering, pagination or guaranteed sort order is implemented. Query parameters do not provide those features.
+
+## Retrieve one task
+
+`GET /tasks/{task_id}` — authentication required.
+
+`task_id` is an integer path parameter. Success: `200`, returning a task object. A nonexistent task and a task owned by another user both return `404`:
+
+```json
+{"error": "Task doesn't exist"}
+```
+
+## Partially update a task
+
+`PATCH /tasks/{task_id}` — authentication required.
+
+All fields are optional. Omitted fields keep their existing values.
+
+| Field | If supplied | Can be cleared with `null`? |
+|---|---|---|
+| `title` | Nonblank string, maximum 64 characters | No |
+| `description` | String up to 128 characters, or `null` | Yes |
+| `status` | An allowed status value | No |
+| `priority` | An allowed priority value | No |
+| `due_date` | Datetime or `null`; see Date handling | Yes |
+
+Example: complete the task and clear its description while preserving the other fields.
+
+```json
+{"status": "Complete", "description": null}
+```
+
+Success: `200`, returning the updated task object. An empty object `{}` is accepted as a no-op. Unknown fields are ignored. `PUT` is not implemented.
+
+Known inconsistency: PATCH accepts one- and two-character titles, while creation requires at least three characters. PATCH rejects whitespace-only titles and does not strip surrounding whitespace from otherwise valid titles.
+
+For a nonexistent or other user's task, a valid PATCH request returns `404`:
+
+```json
+{"error": "Task not Found"}
+```
+
+Request validation runs before the database lookup, so an invalid body may return `400` before task existence is checked.
+
+## Delete a task
+
+`DELETE /tasks/{task_id}` — authentication required.
+
+Success: `204`, with **no response body**. The task is removed from the database. A subsequent request for that task returns `404`.
+
+A nonexistent or other user's task returns `404`:
+
+```json
+{"error": "Task not found"}
+```
+
+## Date handling — current limitations
+
+Date handling needs a consistent timezone and serialization policy before clients can rely on it.
+
+| Input or operation | Observed behaviour |
+|---|---|
+| Omit `due_date` on creation | Stores `null` |
+| Omit `due_date` on PATCH | Preserves the existing value |
+| Send `null` | Clears the date |
+| Future ISO datetime without an offset, e.g. `2030-01-01T10:00:00` | Accepted when later than the server's current local time |
+| Datetime earlier than the server's current local time | `406`, application error |
+| Future timezone-aware ISO datetime with `Z` or a numeric offset | `500`, application error |
+| Send a returned HTTP-style date string back unchanged | `400`, validation error |
+
+The service compares input against a timezone-naive `datetime.now()`. A timezone-aware value therefore raises an exception. The past-date rule compares the full timestamp, despite its error message referring to "today's date". Earlier times on the same day are also rejected.
+
+The output's `GMT` label does not establish a reliable UTC policy for stored naive values. Recommended correction: choose and enforce a timezone convention, normalize dates consistently, return ISO 8601 timestamps and use the chosen validation-error code instead of `406`.
+
+## Error responses
+
+There is currently no single error-envelope format.
+
+| Status | Typical cause | Current response shape |
+|---|---|---|
+| `400` | User request schema failure | `error` string and `details` array |
+| `400` | Task request schema failure | `error` string and `details` string |
+| `400` | Malformed JSON | Flask HTML response |
+| `401` | Incorrect login credentials | `error` string |
+| `401` | Missing or expired access token | JWT library `msg` string |
+| `404` | Missing or inaccessible task | `error` string; wording differs by method |
+| `405` | Unsupported HTTP method | Flask HTML response |
+| `406` | Past due date | `error` string; inappropriate status for input validation |
+| `409` | Duplicate email | `error` string |
+| `415` | Non-JSON content type where JSON is required | Flask HTML response |
+| `422` | Malformed JWT | JWT library `msg` string |
+| `500` | Unexpected task service error | `error` string |
+| `500` | Unhandled registration error | Flask HTML response |
+
+Examples:
+
+```json
+{"error": "Invalid request data", "details": "Value error, Title cannot be blank"}
+```
+
+```json
+{"msg": "Missing Authorization Header"}
+```
+
+```json
+{"msg": "Token has expired"}
+```
+
+```json
+{"error": "Internal Server Error"}
+```
+
+Task validation exposes only the first error message. User validation exposes a list of Pydantic errors; remove sensitive input values when standardizing that format. Default framework errors may differ if a developer enables debug mode.
+
+## Health checks and root route
+
+`GET` or `POST` to `/users/health` or `/tasks/health` returns `200`:
+
+```json
+{"status": "healthy"}
+```
+
+These public routes confirm that Flask can respond; they do not verify database connectivity. `GET /` returns the text `Landing. This is main.` and is not a JSON API endpoint.
+
+## Recommended next contract changes
+
+These changes are recommendations, not implemented features:
+
+1. Correct create/list status codes and the past-date error code.
+2. Handle duplicate usernames and password byte limits without server errors; redact authentication validation input.
+3. Standardize date input, storage and output.
+4. Apply the same title rules to creation and updates.
+5. Standardize application, authentication and framework error responses.
+6. Add regression tests for the agreed contract and keep this document synchronized with those changes.
