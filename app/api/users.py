@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from app.database import SessionLocal
 from app.schemas.user import LoginUserRequest, RegisterUserRequest
 from app.services.user import login_user, register_user
-from app.exceptions import InvalidCredentialsError, DuplicateUserError
+from app.exceptions import InvalidCredentialsError, DuplicateUserError, InvalidPasswordError
 
 user_blueprint = Blueprint('users', 'users', url_prefix="/users")
 
@@ -21,7 +21,7 @@ def register():
         register_request = RegisterUserRequest.model_validate(payload)
     except ValidationError as exc:
         return {"error": "Invalid request data",
-                "details": exc.errors()}, 400
+                "details": exc.errors()[0]["msg"]}, 400 # Removed the input from the error message BUT error message seems to vague: (MUST FIX)
 
     db = SessionLocal()
     try:
@@ -30,6 +30,8 @@ def register():
         access_token = create_access_token(user_id)
     except DuplicateUserError as exc:
         return {"error": str(exc)}, 409
+    except InvalidPasswordError as pe:
+        return {"error": str(pe)}, 400
     finally:
         db.close()
 
@@ -43,7 +45,7 @@ def login():
         login_request = LoginUserRequest.model_validate(payload)
     except ValidationError as exc:
         return {"error": "Invalid request data",
-                "details": exc.errors()}, 400
+                "details": exc.errors()[0]["msg"]}, 400
 
     db = SessionLocal()
     # used a try, finally block because if errors are encountered,
@@ -55,7 +57,8 @@ def login():
 
     except InvalidCredentialsError as exc:
         return {"error": str(exc)}, 401
-        
+    except InvalidPasswordError as pe:
+        return {"error": str(pe)}, 400
     finally:
         db.close()
 

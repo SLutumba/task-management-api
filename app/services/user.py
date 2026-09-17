@@ -1,3 +1,5 @@
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import User
@@ -9,22 +11,31 @@ def register_user(
         db: Session,
         request: RegisterUserRequest
         ) -> User:
+
+    # Sanitise inputs
+    email = request.email.strip()
+    username = request.username.strip()
+    
+    # ensure no user with same email/username can be found
     existing_user = (
         db.query(User)
-        .filter(User.email == request.email)
+        .filter(
+             or_(User.email == email, 
+                User.username == username)
+        )
         .first()
     )
 
     if existing_user is not None:
         raise DuplicateUserError(
-            "A user with this email already exists."
+            "A user with this email/username already exists."
         )
 
     hashed_password = hash_password(request.password)
 
     new_user = User(
-        username=request.username,
-        email=request.email,
+        username=username,
+        email=email,
         password_hash=hashed_password
         )
 
@@ -32,6 +43,11 @@ def register_user(
 
     try:
         db.commit()
+    except IntegrityError:
+         db.rollback()
+         raise DuplicateUserError(
+            "A user with this email/username already exists."
+         )
     except Exception:
         db.rollback()
         raise
@@ -45,9 +61,11 @@ def login_user(
         login_request: LoginUserRequest
     ) -> User:
 
+    email = login_request.email.strip()
+
     user = (
         db.query(User)
-        .filter(User.email == login_request.email)
+        .filter(User.email == email)
         .first()
     )
 
