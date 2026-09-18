@@ -1,6 +1,6 @@
 # Task Management API — HTTP reference
 
-This reference describes application commit [`b937cb5`](https://github.com/SLutumba/task-management-api/tree/b937cb544b52102b59775c05249b4b733c2e6173), reviewed on 17 September 2026. It documents implemented behaviour, including defects that affect clients. It is not a proposed future contract.
+This reference describes the working tree reviewed on 18 September 2026, including the authentication, validation and test-isolation changes being prepared for commit. It documents implemented behavior; the earlier commit-specific defect list has been superseded. The regression suite contains 98 cases.
 
 For installation and a complete command-line walkthrough, see [README.md](README.md).
 
@@ -19,15 +19,15 @@ For installation and a complete command-line walkthrough, see [README.md](README
 |---|---|---|---|
 | POST | `/users/register` | Public | `201`, token object |
 | POST | `/users/login` | Public | `200`, token object |
-| POST | `/tasks/create` | Bearer token | `200`, task object |
-| GET | `/tasks/` | Bearer token | `201`, task array |
+| POST | `/tasks/create` | Bearer token | `201`, task object |
+| GET | `/tasks/` | Bearer token | `200`, task array |
 | GET | `/tasks/{task_id}` | Bearer token | `200`, task object |
 | PATCH | `/tasks/{task_id}` | Bearer token | `200`, updated task object |
 | DELETE | `/tasks/{task_id}` | Bearer token | `204`, no body |
 | GET or POST | `/users/health` | Public | `200`, health object |
 | GET or POST | `/tasks/health` | Public | `200`, health object |
 
-**Known defect:** task creation should return `201` and task listing should return `200`. The table records the existing codes. Use the trailing slash in `/tasks/` as shown.
+Use the trailing slash in `/tasks/` as shown.
 
 ## Register
 
@@ -35,9 +35,9 @@ For installation and a complete command-line walkthrough, see [README.md](README
 
 | Field | Required | Current request validation |
 |---|---|---|
-| `username` | Yes | String, 3–32 characters |
+| `username` | Yes | At least 3 characters after stripping whitespace; at most 32 submitted characters |
 | `email` | Yes | Email address validated by Pydantic `EmailStr` |
-| `password` | Yes | String, 8–128 characters; see bcrypt limitation below |
+| `password` | Yes | String, 8–64 characters and at most 72 UTF-8 bytes |
 
 ```json
 {
@@ -53,19 +53,23 @@ Success: `201`.
 {"access_token": "<signed-jwt>"}
 ```
 
-A duplicate email returns `409`:
+A duplicate email or username returns `409`:
 
 ```json
-{"error": "A user with this email already exists."}
+{"error": "A user with this email/username already exists."}
 ```
 
-Invalid request data returns `400`. There are two unhandled cases: a duplicate username with a new email returns `500`, and passwords longer than 72 UTF-8 bytes can pass the schema but fail bcrypt hashing with `500`. The schema's character limit does not enforce bcrypt's byte limit.
+Invalid request data returns `400`. Password hashing enforces bcrypt's 72-byte UTF-8 limit separately from the schema's character limit. Exactly 72 bytes are accepted when the 8–64-character constraint is also satisfied; longer encoded values return `400`.
+
+Registration checks both email and username before insertion. Database uniqueness constraints remain the final guard; an `IntegrityError` is rolled back and translated to a duplicate-user conflict.
+
+Email and username are stripped in the service. The username validator rejects whitespace-only values and values with fewer than three characters after stripping. The 32-character maximum applies to the submitted value before trimming; accepted usernames are stored without surrounding whitespace.
 
 ## Log in
 
 `POST /users/login`
 
-Login uses **email and password**, not username. Both fields are required. Email uses `EmailStr`; the password schema accepts 8–128 characters.
+Login uses **email and password**, not username. Both fields are required. Email uses `EmailStr`; the password schema accepts 8–64 characters.
 
 ```json
 {"email": "demo@example.com", "password": "DemoPassword123!"}
@@ -77,7 +81,7 @@ Success: `200`, with the same token-object shape as registration. Incorrect cred
 {"error": "Invalid email or password."}
 ```
 
-Schema validation failures return `400`. Authentication validation responses currently include Pydantic input values, which can expose a submitted password in the response. This requires correction; clients should not log these response bodies.
+Schema validation failures return `400`. Responses include the first validation message as a string and omit the submitted input. Wrong-password and unknown-account failures use the same `401` message for ordinary credentials within the password byte limit.
 
 ## Task representation
 
@@ -111,7 +115,7 @@ Non-null `due_date` values currently serialize as HTTP-style date strings, for e
 
 | Field | Required | Current rules |
 |---|---|---|
-| `title` | Yes | String, 3–64 characters |
+| `title` | Yes | At least 3 characters after stripping whitespace; at most 64 submitted characters |
 | `description` | No | String up to 128 characters, or `null`; defaults to `null` |
 | `status` | Yes | One of the status values above |
 | `priority` | Yes | One of the priority values above |
@@ -127,15 +131,15 @@ Non-null `due_date` values currently serialize as HTTP-style date strings, for e
 }
 ```
 
-Success: currently `200`, returning the new task object. Status and priority have no request defaults. Unknown request fields are silently ignored, including `user_id`; ownership is always taken from the token.
+Success: `201`, returning the new task object. Status and priority have no request defaults. Unknown request fields are silently ignored, including `user_id`; ownership is always taken from the token.
 
-Known validation gap: a title consisting of three spaces passes creation. Creation does not currently trim or reject whitespace-only titles.
+Creation rejects titles with fewer than three characters after stripping whitespace, including padded short values such as `" ab "`. The maximum of 64 characters applies before trimming. Accepted titles retain their surrounding whitespace in storage and responses.
 
 ## List tasks
 
 `GET /tasks/` — authentication required.
 
-Returns only tasks owned by the authenticated user. Success is currently `201`, with a JSON array of task objects. An account without tasks receives `[]`.
+Returns only tasks owned by the authenticated user. Success is `200`, with a JSON array of task objects. An account without tasks receives `[]`.
 
 No filtering, pagination or guaranteed sort order is implemented. Query parameters do not provide those features.
 
@@ -157,7 +161,7 @@ All fields are optional. Omitted fields keep their existing values.
 
 | Field | If supplied | Can be cleared with `null`? |
 |---|---|---|
-| `title` | Nonblank string, maximum 64 characters | No |
+| `title` | At least 3 characters after stripping; at most 64 submitted characters | No |
 | `description` | String up to 128 characters, or `null` | Yes |
 | `status` | An allowed status value | No |
 | `priority` | An allowed priority value | No |
@@ -171,7 +175,7 @@ Example: complete the task and clear its description while preserving the other 
 
 Success: `200`, returning the updated task object. An empty object `{}` is accepted as a no-op. Unknown fields are ignored. `PUT` is not implemented.
 
-Known inconsistency: PATCH accepts one- and two-character titles, while creation requires at least three characters. PATCH rejects whitespace-only titles and does not strip surrounding whitespace from otherwise valid titles.
+PATCH and creation share the same title rules: at least three characters after stripping and at most 64 in the submitted value. PATCH rejects explicit null for title, status and priority. Accepted titles preserve surrounding whitespace.
 
 For a nonexistent or other user's task, a valid PATCH request returns `404`:
 
@@ -193,23 +197,26 @@ A nonexistent or other user's task returns `404`:
 {"error": "Task not found"}
 ```
 
-## Date handling — current limitations
+## Date handling
 
-Date handling needs a consistent timezone and serialization policy before clients can rely on it.
+For create and PATCH, provide an ISO 8601 datetime with `Z` or an explicit UTC offset, for example `2030-01-01T12:00:00+02:00`, or `null`. The schema normalizes aware input to UTC, and the service rejects timestamps earlier than its current aware UTC time.
 
-| Input or operation | Observed behaviour |
+| Input or operation | Behavior |
 |---|---|
 | Omit `due_date` on creation | Stores `null` |
 | Omit `due_date` on PATCH | Preserves the existing value |
 | Send `null` | Clears the date |
-| Future ISO datetime without an offset, e.g. `2030-01-01T10:00:00` | Accepted when later than the server's current local time |
-| Datetime earlier than the server's current local time | `406`, application error |
-| Future timezone-aware ISO datetime with `Z` or a numeric offset | `500`, application error |
-| Send a returned HTTP-style date string back unchanged | `400`, validation error |
+| Datetime without a timezone | `400`, validation error |
+| Malformed datetime | `400`, validation error |
+| Past timezone-aware datetime | `400`, application error |
+| Future timezone-aware datetime | Accepted and normalized to UTC |
+| Send the returned HTTP date string back unchanged | `400`; convert to timezone-aware ISO 8601 first |
 
-The service compares input against a timezone-naive `datetime.now()`. A timezone-aware value therefore raises an exception. The past-date rule compares the full timestamp, despite its error message referring to "today's date". Earlier times on the same day are also rejected.
+The past-date rule compares the full instant, not only the calendar date. A time earlier today is rejected even though the error message refers to today's date.
 
-The output's `GMT` label does not establish a reliable UTC policy for stored naive values. Recommended correction: choose and enforce a timezone convention, normalize dates consistently, return ISO 8601 timestamps and use the chosen validation-error code instead of `406`.
+The SQLite column does not retain timezone metadata. The current application normalizes to UTC before storing, and Flask emits the returned value as an HTTP date labeled GMT. Integration coverage verifies that an offset input represents the same instant after create, retrieval and PATCH. This does not validate legacy rows written before UTC normalization.
+
+**Output limitation:** dates are HTTP-style strings at second precision, not ISO 8601, so request and response representations differ and response serialization does not preserve fractional seconds. Omit unchanged dates in PATCH instead of copying their response strings back.
 
 ## Error responses
 
@@ -217,17 +224,17 @@ There is currently no single error-envelope format.
 
 | Status | Typical cause | Current response shape |
 |---|---|---|
-| `400` | User request schema failure | `error` string and `details` array |
+| `400` | User request schema failure | `error` string and `details` string |
 | `400` | Task request schema failure | `error` string and `details` string |
 | `400` | Malformed JSON | Flask HTML response |
 | `401` | Incorrect login credentials | `error` string |
 | `401` | Missing or expired access token | JWT library `msg` string |
 | `404` | Missing or inaccessible task | `error` string; wording differs by method |
 | `405` | Unsupported HTTP method | Flask HTML response |
-| `406` | Past due date | `error` string; inappropriate status for input validation |
-| `409` | Duplicate email | `error` string |
+| `400` | Past due date or password byte limit | `error` string |
+| `409` | Duplicate email or username | `error` string |
 | `415` | Non-JSON content type where JSON is required | Flask HTML response |
-| `422` | Malformed JWT | JWT library `msg` string |
+| `422` | Malformed JWT or invalid signature | JWT library `msg` string |
 | `500` | Unexpected task service error | `error` string |
 | `500` | Unhandled registration error | Flask HTML response |
 
@@ -249,7 +256,7 @@ Examples:
 {"error": "Internal Server Error"}
 ```
 
-Task validation exposes only the first error message. User validation exposes a list of Pydantic errors; remove sensitive input values when standardizing that format. Default framework errors may differ if a developer enables debug mode.
+Both task and user schema validation expose only the first message, without Pydantic input values. Application errors, JWT errors and Flask HTML errors still have different shapes. Unexpected task failures return a generic message; unhandled user-route failures can still return Flask errors. Debug/test mode can propagate otherwise unhandled exceptions.
 
 ## Health checks and root route
 
@@ -261,13 +268,14 @@ Task validation exposes only the first error message. User validation exposes a 
 
 These public routes confirm that Flask can respond; they do not verify database connectivity. `GET /` returns the text `Landing. This is main.` and is not a JSON API endpoint.
 
-## Recommended next contract changes
+## Verification and remaining contract work
 
-These changes are recommendations, not implemented features:
+The 98-case pytest suite checks the happy paths and rejection behavior for authentication and task CRUD, including every protected route with missing, malformed, expired and incorrectly signed tokens. It verifies ownership isolation, preserved state after rejected writes, partial updates, nullable fields, UTC date round trips, password boundaries and response redaction. See [README.md](README.md#run-the-tests) for commands and database-isolation details.
 
-1. Correct create/list status codes and the past-date error code.
-2. Handle duplicate usernames and password byte limits without server errors; redact authentication validation input.
-3. Standardize date input, storage and output.
-4. Apply the same title rules to creation and updates.
-5. Standardize application, authentication and framework error responses.
-6. Add regression tests for the agreed contract and keep this document synchronized with those changes.
+Remaining work:
+
+1. Standardize application, authentication and framework error responses.
+2. Align date output with ISO 8601 input and define fractional-second precision.
+3. Add CI and coverage for concurrency and unexpected database failures.
+
+No filtering, pagination, refresh/logout endpoints or schema migrations are implemented. These docs do not claim those features or exhaustive test coverage.

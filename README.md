@@ -2,7 +2,7 @@
 
 A Python and Flask API for managing user-owned tasks. Users register, sign in and manage their tasks through JWT-protected endpoints backed by SQLAlchemy and SQLite.
 
-**Status:** the core authenticated CRUD workflow is implemented. Error handling, date consistency and an automated regression suite are the next work items. See [API_SPEC.md](API_SPEC.md) for the implemented API, including its current limitations.
+**Status:** authenticated CRUD and a 98-case pytest integration suite are implemented. The suite covers authentication, ownership isolation, task validation, partial updates, date persistence and password boundaries. See [API_SPEC.md](API_SPEC.md) for the current API contract and remaining limitations.
 
 ## Features
 
@@ -16,7 +16,7 @@ A Python and Flask API for managing user-owned tasks. Users register, sign in an
 
 ## Run locally
 
-Tested with Python 3.12. Commands below use Bash, including Git Bash on Windows.
+The current regression suite was verified with Python 3.13.1. Commands below use Bash, including Git Bash on Windows.
 
 ```bash
 git clone https://github.com/SLutumba/task-management-api.git
@@ -40,11 +40,16 @@ Install the dependencies, create a development secret and start the server from 
 
 ```bash
 python -m pip install -r requirements.txt
+export APP_ENV=dev
 export JWT_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 python -m flask --app main run
 ```
 
-The server listens at `http://127.0.0.1:5000`. The application reads `JWT_SECRET_KEY` from the shell environment; it does not load a `.env` file automatically. Run the export command again in a new shell session. Changing the secret invalidates tokens signed with the previous value.
+The server listens at `http://127.0.0.1:5000`. `config.py` loads `.env` through python-dotenv; existing shell variables take precedence. You can put `APP_ENV=dev` and a generated `JWT_SECRET_KEY` in your local, untracked `.env` instead. Never commit that file. Changing the secret invalidates tokens signed with the previous value.
+
+`APP_ENV=dev` selects `app/database.db`, and `APP_ENV=test` selects `test.db`. If APP_ENV is absent after loading `.env`, configuration defaults to `dev`. Unsupported values still return an empty database URL and fail engine initialization. Configuration is read on import, so select the environment and provide the JWT secret before importing the application.
+
+For PowerShell, activate with `.\venv\Scripts\Activate.ps1` and set variables with `$env:APP_ENV = "dev"` and `$env:JWT_SECRET_KEY = "your-generated-secret"`.
 
 SQLite tables are created on application import, and local data is stored in `app/database.db`, relative to the working directory. Table creation does not migrate an existing schema. Schema migrations have not been added yet.
 
@@ -115,14 +120,14 @@ Paths have no `/api` prefix. The table shows the current implementation's succes
 |---|---|---|---|
 | POST | `/users/register` | Public | `201`, access token |
 | POST | `/users/login` | Public | `200`, access token |
-| POST | `/tasks/create` | Bearer token | `200`, task object |
-| GET | `/tasks/` | Bearer token | `201`, task array |
+| POST | `/tasks/create` | Bearer token | `201`, task object |
+| GET | `/tasks/` | Bearer token | `200`, task array |
 | GET | `/tasks/{task_id}` | Bearer token | `200`, task object |
 | PATCH | `/tasks/{task_id}` | Bearer token | `200`, updated task |
 | DELETE | `/tasks/{task_id}` | Bearer token | `204`, empty body |
 | GET or POST | `/users/health`, `/tasks/health` | Public | `200`, health object |
 
-The create/list codes need correction to `201`/`200` respectively. They are documented as implemented here so examples do not promise different behaviour from the code.
+Creation returns `201`; retrieval and updates return `200`. Use the trailing slash in `/tasks/`.
 
 ## Implementation
 
@@ -134,23 +139,52 @@ The create/list codes need correction to `201`/`200` respectively. They are docu
 | `app/services/` | Task ownership queries, business rules and database writes |
 | `app/models/` | SQLAlchemy user/task tables and relationships |
 | `app/database.py` | SQLite engine, session factory and initial table creation |
+| `config.py` | Loads environment settings and selects the database URL |
+| `tests/` | pytest integration coverage and disposable database fixtures |
 | `app/utils/` | Password hashing and task serialization helpers |
 
 Each task has one owner through `user_id`; a user can own many tasks. Ownership is taken from the authenticated token, not a request body. Single-task queries filter by both task ID and owner ID, so missing and inaccessible tasks produce the same status code.
 
 For PATCH requests, `model_dump(exclude_unset=True)` distinguishes an omitted field from an explicit `null`. This allows a description or due date to be cleared without overwriting unrelated fields.
 
-## Verification and remaining work
+Usernames must have at least three characters after stripping whitespace and at most 32 characters in the submitted value; the service stores the stripped value. Task titles require at least three characters after stripping and at most 64 in the submitted value, but preserve surrounding whitespace when stored. Whitespace-only and padded one- or two-character values are rejected.
 
-A review of application commit `b937cb5` exercised registration, login, task CRUD, missing/expired tokens, two-user ownership isolation and partial-update behaviour using an isolated SQLite database. It also reproduced the issues below. That review is not a committed automated test suite.
+## Run the tests
 
-- Correct create/list success codes and use a validation-error response for past due dates instead of `406`.
-- Choose a consistent datetime policy. Timezone-aware input currently causes `500`; returned date strings also differ from accepted input strings.
-- Handle duplicate usernames as conflicts, validate bcrypt's password byte limit and remove submitted input from authentication validation errors.
-- Apply consistent title rules to creation and updates, and normalise error responses.
-- Add regression tests and run them in CI, prioritising ownership isolation and failed requests.
+From the repository root, with your virtual environment active:
 
-Filtering, pagination, refresh tokens, deployment and database migrations are not implemented. These are separate enhancements; the current task workflow does not depend on them.
+```bash
+export JWT_SECRET_KEY='local-test-only-secret-at-least-32-characters'
+python -m pytest -v
+```
+
+PowerShell equivalent:
+
+```powershell
+$env:JWT_SECRET_KEY = 'local-test-only-secret-at-least-32-characters'
+python -m pytest -v
+```
+
+The test modules set `APP_ENV=test` before application imports. No running Flask server is needed. The authentication tests use the configured JWT secret; the task and boundary suites temporarily use a dedicated test secret.
+
+Fixtures check that the engine points to `test.db`, drop and recreate its tables before each test, and drop them again afterwards. **Treat `test.db` as disposable.** Do not run concurrent suites against this shared file. These fixtures do not modify the development database.
+
+| File | Cases | Coverage |
+|---|---:|---|
+| `tests/test_auth.py` | 17 | Registration, independent duplicate checks, login and missing fields |
+| `tests/test_tasks.py` | 71 | JWT rejection, task CRUD, ownership, validation, nullable fields and UTC date round trips |
+| `tests/test_auth_boundaries.py` | 10 | Password character/byte boundaries, response redaction and consistent credential errors |
+
+The suite passed against an isolated copy of the application on 18 September 2026 using Python 3.13.1. Tests assert responses and persisted state, including that rejected operations leave tasks unchanged. They are regression coverage, not an exhaustive security audit or concurrency test.
+
+## Remaining work
+
+- Give unsupported `APP_ENV` values a clear error; the missing-value development default now works.
+- Standardize the JSON error envelope across application, JWT and framework errors.
+- Decide whether date responses should use ISO 8601 to match request input. Current responses use HTTP date strings at second precision.
+- Add CI and database migrations; test concurrency and unexpected database failures separately.
+
+Filtering, pagination, refresh/logout endpoints and deployment are not implemented. These are separate enhancements; the current task workflow does not depend on them.
 
 ## License
 
