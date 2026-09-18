@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 from app.models.task import Status, Priority
-from datetime import datetime
+from datetime import datetime, timezone
 
 class CreateTaskRequest(BaseModel):
     title: str = Field(min_length=3, max_length=64)
@@ -8,6 +8,32 @@ class CreateTaskRequest(BaseModel):
     status: Status
     priority: Priority
     due_date: datetime|None = None
+
+    @field_validator('title')
+    @classmethod
+    def validate_title(cls, title: str) -> str:
+        if (title is None or 
+            title.strip() == "" or
+            len(title.strip()) < 3):
+            raise ValueError(
+                'Title cannot be blank or less than 3 characters'
+            )
+        return title
+
+    @field_validator('due_date')
+    @classmethod
+    def validate_due_date(cls, due_date: datetime) -> datetime:
+        if due_date is None:
+            return None
+        if (due_date.tzinfo is None or 
+            due_date.tzinfo.utcoffset(due_date) is None
+        ):
+            raise ValueError(
+                'Due date must contain timezone information.'
+            )
+
+        return due_date.astimezone(timezone.utc) # Normalised due date to ensure data consistency
+
 
 class UpdateTaskRequest(BaseModel):
     title: str|None = Field(default=None, max_length=64)
@@ -19,9 +45,11 @@ class UpdateTaskRequest(BaseModel):
     @field_validator('title')
     @classmethod
     def validate_title(cls, title: str) -> str:
-        if title is None or title.strip() == "":
+        if (title is None or 
+            title.strip() == "" or
+            len(title.strip()) < 3):
             raise ValueError(
-                'Title cannot be blank'
+                'Title cannot be blank or less than 3 characters'
             )
         return title
 
@@ -42,3 +70,17 @@ class UpdateTaskRequest(BaseModel):
                 'Priority cannot be blank'
             )
         return priority
+
+    @field_validator('due_date')
+    @classmethod
+    def validate_due_date(cls, due_date: datetime) -> datetime:
+        if due_date is None:
+            return None
+        if (due_date.tzinfo is None or 
+            due_date.tzinfo.utcoffset(due_date) is None
+        ):
+            raise ValueError(
+                'Due date must contain timezone information.'
+            )
+
+        return due_date.astimezone(timezone.utc) # Normalised due date to ensure data consistency

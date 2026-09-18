@@ -10,7 +10,7 @@ app = Flask(__name__)
 app.register_blueprint(task_blueprint)
 app.register_blueprint(user_blueprint)
 
-app.config["JWT_SECRET_KEY"] = os.environ["JWT_SECRET_KEY"]
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY")
 
 jwt = JWTManager(app)
 

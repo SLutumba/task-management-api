@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from app.exceptions import InvalidDateTimeError, TaskNotFoundError
 from app.models import Task
 from app.schemas.task import CreateTaskRequest, UpdateTaskRequest
-from datetime import datetime
+from datetime import datetime, timezone
 
 def create_task(
         db: Session,
@@ -11,7 +11,7 @@ def create_task(
     ) -> Task:
 
     if (request.due_date is not None 
-        and (request.due_date < datetime.now())):
+        and (request.due_date < datetime.now(timezone.utc))):
         raise InvalidDateTimeError(
             f"Invalid due date entered. The date cannot be before today's date: {datetime.today().date()}"
         )
@@ -87,7 +87,7 @@ def update_task(
         )
 
     if (request.due_date is not None 
-        and (request.due_date < datetime.now())):
+        and (request.due_date < datetime.now(timezone.utc))):
         raise InvalidDateTimeError(
             f"Invalid due date entered. The date cannot be before today's date: {datetime.today().date()}"
         )

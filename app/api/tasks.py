@@ -31,14 +31,14 @@ def create_user_task():
                         request=create_request, 
                         user_id=current_user_id)
     except InvalidDateTimeError as e:
-        return {"error": str(e)}, 406
+        return {"error": str(e)}, 400
     except Exception:
             return {"error": "Internal Server Error"}, 500
 
     finally:
         db.close()
 
-    return jsonify(task_serialiser(task))
+    return jsonify(task_serialiser(task)), 201
 
 @task_blueprint.route("/", methods=['GET'])
 @jwt_required()
@@ -54,7 +54,7 @@ def get_user_tasks():
     finally:
         db.close()
     
-    return jsonify(tasks_serialiser(tasks)), 201
+    return jsonify(tasks_serialiser(tasks)), 200
 
 @task_blueprint.route("/<int:task_id>", methods=['GET'])
 @jwt_required()
@@ -71,7 +71,7 @@ def get_user_task(task_id: int):
     finally:
         db.close()
 
-    return jsonify(task_serialiser(task=task))
+    return jsonify(task_serialiser(task=task)), 200
 
 @task_blueprint.route("/<int:task_id>", methods=["PATCH"])
 @jwt_required()
@@ -97,7 +97,7 @@ def update_user_task(task_id: int):
     except TaskNotFoundError as exc:
         return {"error": str(exc)}, 404    
     except InvalidDateTimeError as e:
-        return {"error": str(e)}, 406
+        return {"error": str(e)}, 400
     
     except Exception:
             return {"error": "Internal Server Error"}, 500

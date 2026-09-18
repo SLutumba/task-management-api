@@ -1,254 +1,281 @@
-# Endpoints
-- Register User
-- Login
-- Get Tasks
-- Create Task
-- Update Task
-- Delete Task
+# Task Management API — HTTP reference
 
-## Register User
-### Request:
-POST /api/auth/register
-{
-    "username": "name",
-    "email": "email@stuff.com",
-    "password": "supersecretpassword"
-}
-### Response:
-####  Success
-- Code: 201
-- Body:
-{
-    "message": "User successfully registered."
-}
+This reference describes the working tree reviewed on 18 September 2026, including the authentication, validation and test-isolation changes being prepared for commit. It documents implemented behavior; the earlier commit-specific defect list has been superseded. The regression suite contains 98 cases.
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
-- Code: 400
-{
-    "error": "Missing email/username/password"
-}
-- Code: 409
-{
-    "error": "email/username already exists"
-}
+For installation and a complete command-line walkthrough, see [README.md](README.md).
 
-## Login
-### Request:
-POST /api/auth/login
-{
-    "username": "name",
-    "password": "supersecretpassword"
-}
+## Connection and authentication
 
-### Response:
-####  Success
-- Code: 200
-- Body:
-{
-    "token": "jwt_token."
-}
+- Local base URL: `http://127.0.0.1:5000`.
+- There is no `/api` prefix.
+- Send JSON request bodies with `Content-Type: application/json`.
+- Protected routes require `Authorization: Bearer <access_token>`.
+- Registration and login both issue an access token. Tokens currently expire after 15 minutes; log in again to obtain another. Refresh and logout endpoints are not implemented.
+- Task ownership comes from the token identity. A client cannot assign a different owner through the request body.
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
-- Code: 400
-{
-    "error": "Missing email/username/password"
-}
-- Code: 404
-{
-    "error": "User with username not found"
-}
-- Code: 401
-{
-    "error": "Invalid password"
-}
+## Routes at a glance
 
-## Create Task
-### Request:
-POST /api/tasks/
-{
+| Method | Path | Access | Current success response |
+|---|---|---|---|
+| POST | `/users/register` | Public | `201`, token object |
+| POST | `/users/login` | Public | `200`, token object |
+| POST | `/tasks/create` | Bearer token | `201`, task object |
+| GET | `/tasks/` | Bearer token | `200`, task array |
+| GET | `/tasks/{task_id}` | Bearer token | `200`, task object |
+| PATCH | `/tasks/{task_id}` | Bearer token | `200`, updated task object |
+| DELETE | `/tasks/{task_id}` | Bearer token | `204`, no body |
+| GET or POST | `/users/health` | Public | `200`, health object |
+| GET or POST | `/tasks/health` | Public | `200`, health object |
 
-    "title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?
-}
+Use the trailing slash in `/tasks/` as shown.
 
-### Response:
-####  Success
-- Code: 201
-- Body:
-{
-    "task_id", 1
-    "user_id", 1
-    "title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?
-}
+## Register
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
-- Code: 400
-{
-    "error": "Missing details (title, status, or priority)"
-}
-- Code: 401
-{
-    "error": "You're not logged in, you can't create any tasks"
-}
+`POST /users/register`
 
-## Get Tasks
-### Request:
-GET /api/tasks/
+| Field | Required | Current request validation |
+|---|---|---|
+| `username` | Yes | At least 3 characters after stripping whitespace; at most 32 submitted characters |
+| `email` | Yes | Email address validated by Pydantic `EmailStr` |
+| `password` | Yes | String, 8–64 characters and at most 72 UTF-8 bytes |
 
-### Response:
-####  Success
-- Code: 200
-- Body:
+```json
 {
-    {"title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?},
+  "username": "demo_user",
+  "email": "demo@example.com",
+  "password": "DemoPassword123!"
+}
+```
 
-    {"title": "title2",
-    "description": "describeit2",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?}
-}
+Success: `201`.
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
+```json
+{"access_token": "<signed-jwt>"}
+```
 
-- Code: 401
-{
-    "error": "You're not logged in, you can't access any tasks"
-}
-- Code: 403
-{
-    "error": "the tasks you're trying to retrieve don't belong to you"
-}
-## Get Task
-### Request:
-GET /api/tasks/{id}
+A duplicate email or username returns `409`:
 
-### Response:
-####  Success
-- Code: 200
-- Body:
-{
-    {"title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?}
-}
+```json
+{"error": "A user with this email/username already exists."}
+```
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
+Invalid request data returns `400`. Password hashing enforces bcrypt's 72-byte UTF-8 limit separately from the schema's character limit. Exactly 72 bytes are accepted when the 8–64-character constraint is also satisfied; longer encoded values return `400`.
 
-- Code: 401
-{
-    "error": "You're not logged in, you can't access any tasks"
-}
-- Code: 403
-{
-    "error": "the tasks you're trying to retrieve don't belong to you"
-}
-- Code: 404
-{
-    "error": "no such task exists"
-}
+Registration checks both email and username before insertion. Database uniqueness constraints remain the final guard; an `IntegrityError` is rolled back and translated to a duplicate-user conflict.
 
-## Update Task
-### Request:
-PUT /api/tasks/{task_id}
-{
-    "title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?
-}
+Email and username are stripped in the service. The username validator rejects whitespace-only values and values with fewer than three characters after stripping. The 32-character maximum applies to the submitted value before trimming; accepted usernames are stored without surrounding whitespace.
 
-### Response:
-####  Success
-- Code: 200
-- Body:
-{
-    "title": "title",
-    "description": "describeit",
-    "status": "created",
-    "priority": "low",
-    "due_date": ?
-}
+## Log in
 
-#### Failures
-- Code: 500
-{
-    "Internal server issue, please try again"
-}
-- Code: 400
-{
-    "error": "Missing details (title, status, or priority)"
-}
-- Code: 401
-{
-    "error": "You're not logged in, you can't access any tasks"
-}
-- Code: 403
-{
-    "error": "the tasks you're trying to edit don't belong to you"
-}
+`POST /users/login`
 
-## Delete Task
-### Request:
-DELETE /api/tasks/{task_id}
+Login uses **email and password**, not username. Both fields are required. Email uses `EmailStr`; the password schema accepts 8–64 characters.
 
+```json
+{"email": "demo@example.com", "password": "DemoPassword123!"}
+```
 
-### Response:
-####  Success
-- Code: 204
-- Body:
-{
-   "success": "deletion was successful"
-}
+Success: `200`, with the same token-object shape as registration. Incorrect credentials return `401`:
 
-#### Failures
-- Code: 500
+```json
+{"error": "Invalid email or password."}
+```
+
+Schema validation failures return `400`. Responses include the first validation message as a string and omit the submitted input. Wrong-password and unknown-account failures use the same `401` message for ordinary credentials within the password byte limit.
+
+## Task representation
+
+Successful single-task responses contain these six fields:
+
+```json
 {
-    "Internal server issue, please try again"
+  "id": 1,
+  "title": "Review API docs",
+  "description": "Check examples",
+  "status": "To-Do",
+  "priority": "Medium",
+  "due_date": null
 }
-- Code: 400
+```
+
+`id` is an integer generated by the database. `description` and `due_date` may be `null`. Owner IDs and creation/update timestamps are not included in the serialized response.
+
+Allowed values are case-sensitive:
+
+| Field | Values |
+|---|---|
+| `status` | `To-Do`, `In Progress`, `Complete` |
+| `priority` | `Low`, `Medium`, `High` |
+
+Non-null `due_date` values currently serialize as HTTP-style date strings, for example `Thu, 24 Sep 2026 10:00:00 GMT`. This is inconsistent with the input format; see Date handling.
+
+## Create a task
+
+`POST /tasks/create` — authentication required.
+
+| Field | Required | Current rules |
+|---|---|---|
+| `title` | Yes | At least 3 characters after stripping whitespace; at most 64 submitted characters |
+| `description` | No | String up to 128 characters, or `null`; defaults to `null` |
+| `status` | Yes | One of the status values above |
+| `priority` | Yes | One of the priority values above |
+| `due_date` | No | Datetime or `null`; defaults to `null`; see Date handling |
+
+```json
 {
-    "error": "Missing task id"
+  "title": "Review API docs",
+  "description": "Check examples",
+  "status": "To-Do",
+  "priority": "Medium",
+  "due_date": null
 }
-- Code: 401
-{
-    "error": "You're not logged in, you can't delete any tasks"
-}
-- Code: 403
-{
-    "error": "the tasks you're trying to delete don't belong to you"
-}
+```
+
+Success: `201`, returning the new task object. Status and priority have no request defaults. Unknown request fields are silently ignored, including `user_id`; ownership is always taken from the token.
+
+Creation rejects titles with fewer than three characters after stripping whitespace, including padded short values such as `" ab "`. The maximum of 64 characters applies before trimming. Accepted titles retain their surrounding whitespace in storage and responses.
+
+## List tasks
+
+`GET /tasks/` — authentication required.
+
+Returns only tasks owned by the authenticated user. Success is `200`, with a JSON array of task objects. An account without tasks receives `[]`.
+
+No filtering, pagination or guaranteed sort order is implemented. Query parameters do not provide those features.
+
+## Retrieve one task
+
+`GET /tasks/{task_id}` — authentication required.
+
+`task_id` is an integer path parameter. Success: `200`, returning a task object. A nonexistent task and a task owned by another user both return `404`:
+
+```json
+{"error": "Task doesn't exist"}
+```
+
+## Partially update a task
+
+`PATCH /tasks/{task_id}` — authentication required.
+
+All fields are optional. Omitted fields keep their existing values.
+
+| Field | If supplied | Can be cleared with `null`? |
+|---|---|---|
+| `title` | At least 3 characters after stripping; at most 64 submitted characters | No |
+| `description` | String up to 128 characters, or `null` | Yes |
+| `status` | An allowed status value | No |
+| `priority` | An allowed priority value | No |
+| `due_date` | Datetime or `null`; see Date handling | Yes |
+
+Example: complete the task and clear its description while preserving the other fields.
+
+```json
+{"status": "Complete", "description": null}
+```
+
+Success: `200`, returning the updated task object. An empty object `{}` is accepted as a no-op. Unknown fields are ignored. `PUT` is not implemented.
+
+PATCH and creation share the same title rules: at least three characters after stripping and at most 64 in the submitted value. PATCH rejects explicit null for title, status and priority. Accepted titles preserve surrounding whitespace.
+
+For a nonexistent or other user's task, a valid PATCH request returns `404`:
+
+```json
+{"error": "Task not Found"}
+```
+
+Request validation runs before the database lookup, so an invalid body may return `400` before task existence is checked.
+
+## Delete a task
+
+`DELETE /tasks/{task_id}` — authentication required.
+
+Success: `204`, with **no response body**. The task is removed from the database. A subsequent request for that task returns `404`.
+
+A nonexistent or other user's task returns `404`:
+
+```json
+{"error": "Task not found"}
+```
+
+## Date handling
+
+For create and PATCH, provide an ISO 8601 datetime with `Z` or an explicit UTC offset, for example `2030-01-01T12:00:00+02:00`, or `null`. The schema normalizes aware input to UTC, and the service rejects timestamps earlier than its current aware UTC time.
+
+| Input or operation | Behavior |
+|---|---|
+| Omit `due_date` on creation | Stores `null` |
+| Omit `due_date` on PATCH | Preserves the existing value |
+| Send `null` | Clears the date |
+| Datetime without a timezone | `400`, validation error |
+| Malformed datetime | `400`, validation error |
+| Past timezone-aware datetime | `400`, application error |
+| Future timezone-aware datetime | Accepted and normalized to UTC |
+| Send the returned HTTP date string back unchanged | `400`; convert to timezone-aware ISO 8601 first |
+
+The past-date rule compares the full instant, not only the calendar date. A time earlier today is rejected even though the error message refers to today's date.
+
+The SQLite column does not retain timezone metadata. The current application normalizes to UTC before storing, and Flask emits the returned value as an HTTP date labeled GMT. Integration coverage verifies that an offset input represents the same instant after create, retrieval and PATCH. This does not validate legacy rows written before UTC normalization.
+
+**Output limitation:** dates are HTTP-style strings at second precision, not ISO 8601, so request and response representations differ and response serialization does not preserve fractional seconds. Omit unchanged dates in PATCH instead of copying their response strings back.
+
+## Error responses
+
+There is currently no single error-envelope format.
+
+| Status | Typical cause | Current response shape |
+|---|---|---|
+| `400` | User request schema failure | `error` string and `details` string |
+| `400` | Task request schema failure | `error` string and `details` string |
+| `400` | Malformed JSON | Flask HTML response |
+| `401` | Incorrect login credentials | `error` string |
+| `401` | Missing or expired access token | JWT library `msg` string |
+| `404` | Missing or inaccessible task | `error` string; wording differs by method |
+| `405` | Unsupported HTTP method | Flask HTML response |
+| `400` | Past due date or password byte limit | `error` string |
+| `409` | Duplicate email or username | `error` string |
+| `415` | Non-JSON content type where JSON is required | Flask HTML response |
+| `422` | Malformed JWT or invalid signature | JWT library `msg` string |
+| `500` | Unexpected task service error | `error` string |
+| `500` | Unhandled registration error | Flask HTML response |
+
+Examples:
+
+```json
+{"error": "Invalid request data", "details": "Value error, Title cannot be blank"}
+```
+
+```json
+{"msg": "Missing Authorization Header"}
+```
+
+```json
+{"msg": "Token has expired"}
+```
+
+```json
+{"error": "Internal Server Error"}
+```
+
+Both task and user schema validation expose only the first message, without Pydantic input values. Application errors, JWT errors and Flask HTML errors still have different shapes. Unexpected task failures return a generic message; unhandled user-route failures can still return Flask errors. Debug/test mode can propagate otherwise unhandled exceptions.
+
+## Health checks and root route
+
+`GET` or `POST` to `/users/health` or `/tasks/health` returns `200`:
+
+```json
+{"status": "healthy"}
+```
+
+These public routes confirm that Flask can respond; they do not verify database connectivity. `GET /` returns the text `Landing. This is main.` and is not a JSON API endpoint.
+
+## Verification and remaining contract work
+
+The 98-case pytest suite checks the happy paths and rejection behavior for authentication and task CRUD, including every protected route with missing, malformed, expired and incorrectly signed tokens. It verifies ownership isolation, preserved state after rejected writes, partial updates, nullable fields, UTC date round trips, password boundaries and response redaction. See [README.md](README.md#run-the-tests) for commands and database-isolation details.
+
+Remaining work:
+
+1. Standardize application, authentication and framework error responses.
+2. Align date output with ISO 8601 input and define fractional-second precision.
+3. Add CI and coverage for concurrency and unexpected database failures.
+
+No filtering, pagination, refresh/logout endpoints or schema migrations are implemented. These docs do not claim those features or exhaustive test coverage.

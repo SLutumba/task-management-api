@@ -14,4 +14,7 @@ class InvalidDateTimeError(Exception):
     """Raised when invalid date/datetime is entered (date in the past, perhaps)"""
 
 class TaskNotFoundError(Exception):
-    """The requested application resource was not found or is not accessible to this user"""
+    """Raised when the requested application resource was not found or is not accessible to this user"""
+
+class InvalidPasswordError(Exception):
+    """Raised when a password over 72 bytes is entered."""
