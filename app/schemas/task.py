@@ -14,7 +14,7 @@ class CreateTaskRequest(BaseModel):
     def validate_title(cls, title: str) -> str:
         if (title is None or 
             title.strip() == "" or
-            len(title) < 3):
+            len(title.strip()) < 3):
             raise ValueError(
                 'Title cannot be blank or less than 3 characters'
             )
@@ -47,7 +47,7 @@ class UpdateTaskRequest(BaseModel):
     def validate_title(cls, title: str) -> str:
         if (title is None or 
             title.strip() == "" or
-            len(title) < 3):
+            len(title.strip()) < 3):
             raise ValueError(
                 'Title cannot be blank or less than 3 characters'
             )
